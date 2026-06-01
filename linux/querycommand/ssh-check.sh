@@ -1,7 +1,7 @@
 #!/bin/bash
 #==================================================================
-# SSH 登录查询工具 - 全自动环境适配版（POSIX 兼容）
-# 用法：curl -fsSL <raw_url> | bash -s -- [选项]
+# SSH 登录查询工具 - 全自动环境适配版 v2.0
+# 增强：日志源空空检测、无数据友好提示、兼容无 journalctl 环境
 #==================================================================
 set -o pipefail
 
@@ -22,7 +22,6 @@ AUTO_SUDO=false
 usage() {
     cat <<EOF
 用法: $0 [选项]
-
 选项:
   -s, --success <N>   成功记录数 (默认 20, 0 禁用)
   -f, --failed <N>    失败记录数 (默认 20, 0 禁用)
@@ -70,7 +69,7 @@ geo_lookup() {
     fi
 }
 
-# ---------- 权限与环境探测 ----------
+# ---------- 权限 ----------
 CMD_PREFIX=""
 if [[ $EUID -ne 0 ]]; then
     if ! { journalctl -u sshd --no-pager -n 1 &>/dev/null || journalctl -u ssh --no-pager -n 1 &>/dev/null || test -r /var/log/auth.log || test -r /var/log/secure; }; then
@@ -78,18 +77,21 @@ if [[ $EUID -ne 0 ]]; then
             CMD_PREFIX="sudo"
             echo -e "${YELLOW}[提示] 使用 sudo 读取日志${NC}" >&2
         else
-            echo -e "${RED}[错误] 无权限，请用 sudo 或加 --auto-sudo${NC}" >&2
+            echo -e "${RED}[错误] 无权限读取 SSH 日志，请用 sudo 或添加 --auto-sudo${NC}" >&2
             exit 1
         fi
     fi
 fi
 
+# ---------- 日志源检测（强调有实际数据）----------
 USE_JOURNAL=false
 LOG_FILE=""
 SSH_SERVICE=""
+
+# 尝试 journalctl，要求至少能输出 1 条日志行
 if command -v journalctl &>/dev/null; then
     for svc in sshd ssh; do
-        if $CMD_PREFIX journalctl -u "$svc" --no-pager -n 1 &>/dev/null; then
+        if $CMD_PREFIX journalctl -u "$svc" --no-pager -n 1 2>/dev/null | grep -q .; then
             SSH_SERVICE="$svc"
             USE_JOURNAL=true
             break
@@ -98,40 +100,42 @@ if command -v journalctl &>/dev/null; then
 fi
 
 if ! $USE_JOURNAL; then
+    # 按顺序尝试文本日志文件（要求存在且非空）
     for candidate in /var/log/auth.log /var/log/secure /var/log/messages; do
-        if $CMD_PREFIX test -r "$candidate"; then
+        if $CMD_PREFIX test -s "$candidate"; then
             LOG_FILE="$candidate"
             break
         fi
     done
     if [[ -z "$LOG_FILE" ]]; then
-        echo -e "${RED}[错误] 未找到 SSH 日志文件${NC}" >&2
+        echo -e "${RED}[错误] 未找到任何包含 SSH 日志的数据源。${NC}" >&2
+        echo "请检查：" >&2
+        echo "  - 是否已安装并启动 sshd 服务？" >&2
+        echo "  - 日志文件路径是否为 /var/log/secure (CentOS) 或 /var/log/auth.log (Ubuntu) ？" >&2
+        echo "  - 是否有过 SSH 登录活动？新服务器可能无记录。" >&2
         exit 1
     fi
 fi
 
-# 构建日志获取命令
+# 构建日志读取命令（使用临时文件避免 eval 引号问题）
 if $USE_JOURNAL; then
-    BASE_CMD="$CMD_PREFIX journalctl -u $SSH_SERVICE --no-pager -o short"
-    [[ -n "$SINCE" ]] && BASE_CMD+=" --since \"$SINCE\""
-    [[ -n "$UNTIL" ]] && BASE_CMD+=" --until \"$UNTIL\""
-    GET_LOG() { eval "$BASE_CMD"; }
+    GET_LOG() {
+        local args="-u $SSH_SERVICE --no-pager -o short"
+        [[ -n "$SINCE" ]] && args="$args --since \"$SINCE\""
+        [[ -n "$UNTIL" ]] && args="$args --until \"$UNTIL\""
+        $CMD_PREFIX journalctl $args 2>/dev/null
+    }
 else
     GET_LOG() { $CMD_PREFIX cat "$LOG_FILE"; }
 fi
 
-# ---------- 纯 sed/awk 解析（不依赖 grep -P）----------
+# ---------- 解析函数 ----------
 parse_success() {
     while IFS= read -r line; do
-        # 提取时间（前三个字段）
         ts=$(echo "$line" | awk '{print $1, $2, $3}')
-        # 提取 Accepted 之后的方法
         method=$(echo "$line" | sed -n 's/.*Accepted \([a-z-]*\).*/\1/p')
-        # 提取 "for user from"
         user=$(echo "$line" | sed -n 's/.*for \([^ ]*\) from .*/\1/p')
-        # 提取 IP
         ip=$(echo "$line" | sed -n 's/.*from \([0-9.]*\).*/\1/p')
-        # 提取端口
         port=$(echo "$line" | sed -n 's/.*port \([0-9]*\).*/\1/p')
         [[ -z "$method" ]] && method="unknown"
         [[ -z "$user" ]] && user="?"
@@ -174,24 +178,41 @@ parse_failed() {
 }
 
 # ---------- 输出 ----------
+NO_DATA_MSG="${YELLOW}[提示] 未查询到任何匹配的日志记录。${NC}"
+
 if [[ $SUCCESS_LINES -gt 0 ]]; then
     echo -e "${GREEN}========== 最近 ${SUCCESS_LINES} 条成功登录 ==========${NC}"
-    GET_LOG | grep "Accepted" | tail -n "$SUCCESS_LINES" | parse_success
+    DATA=$(GET_LOG | grep "Accepted" | tail -n "$SUCCESS_LINES")
+    if [[ -z "$DATA" ]]; then
+        echo -e "$NO_DATA_MSG"
+    else
+        echo "$DATA" | parse_success
+    fi
     echo
 fi
 
 if [[ $FAILED_LINES -gt 0 ]]; then
     echo -e "${RED}========== 最近 ${FAILED_LINES} 条失败登录 ==========${NC}"
-    GET_LOG | grep -E "Failed password|Invalid user|authentication failure" | tail -n "$FAILED_LINES" | parse_failed
+    DATA=$(GET_LOG | grep -E "Failed password|Invalid user|authentication failure" | tail -n "$FAILED_LINES")
+    if [[ -z "$DATA" ]]; then
+        echo -e "$NO_DATA_MSG"
+    else
+        echo "$DATA" | parse_failed
+    fi
     echo
 fi
 
 if $SHOW_STATS; then
     echo -e "${YELLOW}========== 失败登录 IP 统计 (Top 10) ==========${NC}"
-    GET_LOG | grep -E "Failed password|Invalid user" | sed -n 's/.*from \([0-9.]*\).*/\1/p' | sort | uniq -c | sort -nr | head -10 | while read count ip; do
-        geo=""
-        $GEOIP && geo=" | $(geo_lookup "$ip")"
-        printf "${YELLOW}%-5s 次  ${CYAN}IP: %-18s${NC}%s\n" "$count" "$ip" "$geo"
-    done
+    DATA=$(GET_LOG | grep -E "Failed password|Invalid user" | sed -n 's/.*from \([0-9.]*\).*/\1/p' | sort | uniq -c | sort -nr | head -10)
+    if [[ -z "$DATA" ]]; then
+        echo -e "$NO_DATA_MSG"
+    else
+        echo "$DATA" | while read count ip; do
+            geo=""
+            $GEOIP && geo=" | $(geo_lookup "$ip")"
+            printf "${YELLOW}%-5s 次  ${CYAN}IP: %-18s${NC}%s\n" "$count" "$ip" "$geo"
+        done
+    fi
     echo
 fi
