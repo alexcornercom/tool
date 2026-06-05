@@ -207,32 +207,64 @@ Markdown 内容
 ---
 
 # 七、引用块规范
-
-重要信息必须：
-
-```markdown
-
-> ⚠️ 注意事项
-
-> 💡 提示
-
-> 📌 重点
-
-> ✅ 成功提示
-
-```
-
 规则：
-
-* 风险 → ⚠️
-
-* 提示 → 💡
-
-* 重点 → 📌
-
-* 成功 → ✅
-
-禁止纯文本提醒。
+> [!NOTE] 笔记
+> 通用的笔记块。
+> [!ABSTRACT] 摘要
+> 文章的摘要。
+> [!SUMMARY] 总结
+> 文章的总结（同摘要）。
+> [!TLDR] 太长不看
+> 太长不看（同摘要）。
+> [!INFO] 信息
+> 提供额外信息。
+> [!TODO] 待办
+> 需要完成的事项。
+> [!TIP] 提示
+> 实用技巧或提示。
+> [!HINT] 暗示
+> 暗示（同提示）。
+> [!IMPORTANT] 重要
+> 重要信息（Obsidian 风格通常使用类似的图标）。
+> [!SUCCESS] 成功
+> 操作成功。
+> [!CHECK] 检查通过
+> 检查通过（同成功）。
+> [!DONE] 完成
+> 已完成（同成功）。
+> [!QUESTION] 问题
+> 提出问题。
+> [!HELP] 帮助
+> 寻求帮助（同问题）。
+> [!FAQ] 常问问题
+> 常见问题（同问题）。
+> [!WARNING] 警告
+> 警告信息。
+> [!CAUTION] 注意
+> 注意事项（同警告）。
+> [!ATTENTION] 引起注意
+> 引起注意（同警告）。
+> [!FAILURE] 失败
+> 操作失败。
+> [!FAIL] 失败
+> 失败（同失败）。
+> [!MISSING] 缺失
+> 缺失内容（同失败）。
+> [!DANGER] 危险
+> 危险操作警告。
+> [!ERROR] 错误
+> 错误信息（同危险）。
+> [!BUG] 缺陷
+> 报告软件缺陷。
+> [!EXAMPLE] 示例
+> 展示一个例子。
+> [!QUOTE] 引用
+> 引用一段话。
+> [!CITE] 引证
+> 引证（同引用）。
+> [!NOTE] 自定义标题
+> 这是一个带有自定义标题的示例。禁止纯文本提醒。
+支持Obsidian 语法列表
 
 ---
 
@@ -423,101 +455,53 @@ console.log("Hello")
 ```js title="app.js"
 
 console.log("Hello")
-
 ```
-
 ````
-
 适用于：
-
 * js
-
 * ts
-
 * yaml
-
 * nginx
-
 * json
-
 * dockerfile
-
 * env
-
 * 配置文件
-
 作用：
-
 # 增强工程感
-
 ---
-
 # 十六、终端框架
-
 Linux：
-
 ````markdown
-
 ```bash
-
 apt update
-
 ```
-
 ````
-
 Windows：
-
 ````markdown
-
 ```powershell title="Windows PowerShell"
-
 Write-Output "Hello"
-
 ```
-
 ````
-
 规则：
-
 * Linux → bash
-
 * Windows → powershell
-
 * JSON → json
-
 * YAML → yaml
-
 ---
-
 # 十七、行高亮（重点）
-
 关键代码必须：
-
 ````markdown
-
 ```js {3,5-7}
-
 const app = express()
-
 app.listen(3000)
-
 console.log("Started")
-
 ```
-
 ````
-
 作用：
-
 * 告诉用户重点
-
 * 提高教程体验
-
 ---
-
 # 十八、Diff 风格（高级感核心）
-
 修改配置时必须：
 
 ````markdown
